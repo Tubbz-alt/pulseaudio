@@ -4,3 +4,4 @@ alsa-mixer-Add-support-for-2018-Arctis-7.patch
 Don-t-compile-with-ffast-math.patch
 sink-source-Don-t-change-suspend-cause-when-unlinking.patch
 deepin_port_switch.patch
+deepin-analog-input-front-mic-conf-jack.patch
