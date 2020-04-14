@@ -5,3 +5,4 @@ Don-t-compile-with-ffast-math.patch
 sink-source-Don-t-change-suspend-cause-when-unlinking.patch
 deepin_port_switch.patch
 deepin-analog-input-front-mic-conf-jack.patch
+volume_huawei_pulseaudio.patch

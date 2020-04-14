@@ -1,0 +1,112 @@
+Description: <short summary of the patch>
+ TODO: Put a short summary on the line above and replace this paragraph
+ with a longer explanation of this change. Complete the meta-information
+ with other relevant fields (see below for details). To make it easier, the
+ information below has been extracted from the changelog. Adjust it or drop
+ it.
+ .
+ pulseaudio (12.2.6-1+eagle) unstable; urgency=low
+ .
+   * ['Autobuild release-candidate: da1e8373db1d03645afa35d001a152394b3ab841']
+Author: shuttle <shuttle@deepin.com>
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Origin: <vendor|upstream|other>, <url of original patch>
+Bug: <url in upstream bugtracker>
+Bug-Debian: https://bugs.debian.org/<bugnumber>
+Bug-Ubuntu: https://launchpad.net/bugs/<bugnumber>
+Forwarded: <no|not-needed|url proving that it has been forwarded>
+Reviewed-By: <name and email of someone who approved the patch>
+Last-Update: 2020-04-01
+
+--- pulseaudio-12.2.6.orig/src/pulse/volume.c
++++ pulseaudio-12.2.6/src/pulse/volume.c
+@@ -251,10 +251,15 @@ double pa_sw_volume_to_dB(pa_volume_t v)
+ 
+     pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), PA_DECIBEL_MININFTY);
+ 
+-    if (v <= PA_VOLUME_MUTED)
++    if (v <= PA_VOLUME_MUTED) {
+         return PA_DECIBEL_MININFTY;
+-
+-    return linear_to_dB(pa_sw_volume_to_linear(v));
++    } else if (v<=PA_VOLUME_TH1) { /* 0% ~ 10%  */
++        return linear_to_dB(pa_sw_volume_to_linear_quick(v)) + linear_to_dB(pa_sw_volume_to_linear_slow(PA_VOLUME_TH1)) + linear_to_dB(pa_sw_volume_to_linear(PA_VOLUME_TH2));
++    } else if (v<=PA_VOLUME_TH2) { /* 10% ~ 75%  */
++        return linear_to_dB(pa_sw_volume_to_linear_slow(v)) + linear_to_dB(pa_sw_volume_to_linear(PA_VOLUME_TH2));
++    } else { /* 75% ~ 150%  */
++        return linear_to_dB(pa_sw_volume_to_linear(v));
++    }
+ }
+ 
+ pa_volume_t pa_sw_volume_from_linear(double v) {
+@@ -291,6 +296,40 @@ double pa_sw_volume_to_linear(pa_volume_
+     return f*f*f;
+ }
+ 
++double pa_sw_volume_to_linear_slow(pa_volume_t v) { /* 10% ~ 75% */
++    double f;
++
++    pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), 0.0);
++
++    if (v <= PA_VOLUME_MUTED)
++        return 0.0;
++
++    if (v == PA_VOLUME_NORM)
++        return 1.0;
++
++    f = ((double) v / PA_VOLUME_TH2);
++
++    return f*f;
++    pa_log_warn("Add for Pangu");
++}
++
++double pa_sw_volume_to_linear_quick(pa_volume_t v) { /* 0% ~ 10% */
++    double f;
++
++    pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), 0.0);
++
++    if (v <= PA_VOLUME_MUTED)
++        return 0.0;
++
++    if (v == PA_VOLUME_NORM)
++        return 1.0;
++
++    f = ((double) v / PA_VOLUME_TH1);
++
++    return f*f*f;
++}
++
++
+ char *pa_cvolume_snprint(char *s, size_t l, const pa_cvolume *c) {
+     unsigned channel;
+     bool first = true;
+--- pulseaudio-12.2.6.orig/src/pulse/volume.h
++++ pulseaudio-12.2.6/src/pulse/volume.h
+@@ -121,7 +121,10 @@ typedef uint32_t pa_volume_t;
+ 
+ /** Muted (minimal valid) volume (0%, -inf dB) */
+ #define PA_VOLUME_MUTED ((pa_volume_t) 0U)
+-
++/** Add for Pangu **/
++#define PA_VOLUME_TH1 ((pa_volume_t) 0x199aU) /* 10% */
++#define PA_VOLUME_TH2 ((pa_volume_t) 0xc000U) /* 75% */
++/** End add **/
+ /** Maximum valid volume we can store. \since 0.9.15 */
+ #define PA_VOLUME_MAX ((pa_volume_t) UINT32_MAX/2)
+ 
+@@ -317,6 +320,10 @@ pa_volume_t pa_sw_volume_from_linear(dou
+ 
+ /** Convert a volume to a linear factor. This is only valid for software volumes! */
+ double pa_sw_volume_to_linear(pa_volume_t v) PA_GCC_CONST;
++/** Add for Pangu **/
++double pa_sw_volume_to_linear_quick(pa_volume_t v) PA_GCC_CONST;
++double pa_sw_volume_to_linear_slow(pa_volume_t v) PA_GCC_CONST;
++/** Add end **/
+ 
+ #ifdef INFINITY
+ #define PA_DECIBEL_MININFTY ((double) -INFINITY)
