@@ -5,4 +5,3 @@ Don-t-compile-with-ffast-math.patch
 sink-source-Don-t-change-suspend-cause-when-unlinking.patch
 deepin_port_switch.patch
 deepin-analog-input-front-mic-conf-jack.patch
-deepin-bug19177-20942-add-conf-to-adapte-huawei-T100-board.patch
