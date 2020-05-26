@@ -7,3 +7,4 @@ deepin_port_switch.patch
 deepin-analog-input-front-mic-conf-jack.patch
 volume_huawei_pulseaudio.patch
 pulseaudio-bluez5.patch
+pulseaudio-daemon.patch
