@@ -1,0 +1,1182 @@
+Description: huawei fixed bluetooth recording function
+
+---
+The information above should follow the Patch Tagging Guidelines, please
+checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
+are templates for supplementary fields that you might want to add:
+
+Bug: https://pms.uniontech.com/zentao/task-view-23141.html
+Author: huawei
+Reviewed-By: hushijia@uniontech.com
+Last-Update: 2020-05-16
+
+--- pulseaudio-12.2.6.orig/src/Makefile.am
++++ pulseaudio-12.2.6/src/Makefile.am
+@@ -2159,8 +2159,8 @@ module_bluez5_discover_la_CFLAGS = $(AM_
+ 
+ module_bluez5_device_la_SOURCES = modules/bluetooth/module-bluez5-device.c
+ module_bluez5_device_la_LDFLAGS = $(MODULE_LDFLAGS)
+-module_bluez5_device_la_LIBADD = $(MODULE_LIBADD) $(SBC_LIBS) libbluez5-util.la
+-module_bluez5_device_la_CFLAGS = $(AM_CFLAGS) $(SBC_CFLAGS) -DPA_MODULE_NAME=module_bluez5_device
++module_bluez5_device_la_LIBADD = $(MODULE_LIBADD) $(SBC_LIBS) libbluez5-util.la libalsa-util.la
++module_bluez5_device_la_CFLAGS = $(AM_CFLAGS) $(SBC_CFLAGS) $(ASOUNDLIB_CFLAGS) -DPA_MODULE_NAME=module_bluez5_device
+ 
+ # Apple Airtunes/RAOP
+ module_raop_sink_la_SOURCES = modules/raop/module-raop-sink.c
+--- pulseaudio-12.2.6.orig/src/modules/alsa/alsa-sink.c
++++ pulseaudio-12.2.6/src/modules/alsa/alsa-sink.c
+@@ -58,6 +58,8 @@
+ #include "alsa-util.h"
+ #include "alsa-sink.h"
+ 
++#define MESH_PROFILE  "bt_sco"  /*bluetooth profile hsp name*/
++
+ /* #define DEBUG_TIMING */
+ 
+ #define DEFAULT_DEVICE "default"
+@@ -90,6 +92,8 @@
+ 
+ #define DEFAULT_WRITE_ITERATION_THRESHOLD 0.03 /* don't iterate write if < 3% of the buffer is available */
+ 
++#define DEFAULT_BLUETOOTH_PROFILE_HEADSET  2  /*add bluetooth profile HSP*/
++
+ struct userdata {
+     pa_core *core;
+     pa_module *module;
+@@ -167,6 +171,56 @@ enum {
+ 
+ static void userdata_free(struct userdata *u);
+ 
++pa_sink *alsa_sink_device = NULL; //alsa_sink_new device save
++
++static int pa_alsa_set_new_sink(pa_sink *sink_p) {
++    pa_assert(sink_p);
++    alsa_sink_device = sink_p;
++  
++    return 0; 
++}
++
++static pa_sink* pa_alsa_get_new_sink() {    
++   
++    return alsa_sink_device; 
++}
++
++static int get_profile(pa_sink_new_data *sink_new_data, char *profile_name)
++{
++    if(!sink_new_data->card || !profile_name)
++        return -1;
++    
++    pa_log_debug("profile_name = %s", profile_name);    
++    
++    if (!strcmp(profile_name, MESH_PROFILE))
++        return DEFAULT_BLUETOOTH_PROFILE_HEADSET;
++    
++    return -1;
++}
++
++static bool is_headset_profile(pa_sink_new_data *sink_new_data, char *profile_name) {
++
++    int value = get_profile(sink_new_data, profile_name);    
++
++    return (value == DEFAULT_BLUETOOTH_PROFILE_HEADSET);
++}
++
++static void connect_ports(void *new_data, char *port_name, char *profile_name) {
++	pa_device_port *port;
++    pa_sink_new_data *sink_new_data = new_data;
++
++    if (!sink_new_data->card || !port_name) 
++        return;    
++
++    pa_log_debug("input profile = 0x%x, port_name=%s", get_profile(sink_new_data, port_name), port_name);
++   
++    if (is_headset_profile(sink_new_data, profile_name)) {
++		pa_assert_se(port = pa_hashmap_get(sink_new_data->card->ports, port_name));
++		pa_assert_se(pa_hashmap_put(sink_new_data->ports, port_name, port) >= 0);
++		pa_device_port_ref(port);
++    }
++}
++
+ /* FIXME: Is there a better way to do this than device names? */
+ static bool is_iec958(struct userdata *u) {
+     return (strncmp("iec958", u->device_name, 6) == 0);
+@@ -2106,6 +2160,8 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+     bool mute_is_set;
+     pa_alsa_profile_set *profile_set = NULL;
+     void *state = NULL;
++    const char *port_name = NULL;    
++    const char *profile_name = NULL; 
+ 
+     pa_assert(m);
+     pa_assert(ma);
+@@ -2231,6 +2287,10 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+ 
+     u->paths_dir = pa_xstrdup(pa_modargs_get_value(ma, "paths_dir", NULL));
+ 
++    // get supported value according to paramter value
++    port_name = pa_modargs_get_value(ma, "name", NULL);
++    profile_name = pa_modargs_get_value(ma, "profile", NULL);
++
+     if (reserve_init(u, dev_id) < 0)
+         goto fail;
+ 
+@@ -2401,6 +2461,9 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+         pa_alsa_ucm_add_ports(&data.ports, data.proplist, u->ucm_context, true, card);
+     else if (u->mixer_path_set)
+         pa_alsa_add_ports(&data, u->mixer_path_set, card);
++    
++    // connect data to card port 
++    connect_ports(&data, port_name, profile_name);
+ 
+     u->sink = pa_sink_new(m->core, &data, PA_SINK_HARDWARE | PA_SINK_LATENCY | (u->use_tsched ? PA_SINK_DYNAMIC_LATENCY : 0) |
+                           (set_formats ? PA_SINK_SET_FORMATS : 0));
+@@ -2549,6 +2612,14 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+             pa_sink_suspend(u->sink, true, PA_SUSPEND_UNAVAILABLE);
+     }
+ 
++    // save alsa sink create pointer value
++    if (card) {
++        if (is_headset_profile(&data, profile_name)) {
++            u->sink->priority += 100;
++            pa_alsa_set_new_sink(u->sink);
++        }
++    }
++
+     return u->sink;
+ 
+ fail:
+@@ -2631,3 +2702,40 @@ void pa_alsa_sink_free(pa_sink *s) {
+ 
+     userdata_free(u);
+ }
++
++void pa_alsa_sink_bt_free(pa_sink *s) {
++    struct userdata *u;
++    pa_sink *create_sink;    
++
++    pa_log_debug("%s:alsa sink free", __func__);
++    
++    create_sink = pa_alsa_get_new_sink();    
++    if (create_sink){
++       pa_sink_assert_ref(create_sink);
++       pa_assert_se(u = create_sink->userdata);
++    
++       userdata_free(u); 
++    }
++    return;
++}
++
++struct set_state_data {
++    pa_source_state_t state;
++    pa_suspend_cause_t suspend_cause;
++};
++
++void pa_alsa_notify_sink_thread_state(pa_sink_state_t state, pa_suspend_cause_t suspend_cause)
++{   
++    pa_sink *create_sink = pa_alsa_get_new_sink(); 
++    if (create_sink)
++    {          
++        create_sink->set_state_in_main_thread(create_sink, state, suspend_cause);  
++        if (create_sink->asyncmsgq) {
++          struct set_state_data data = { .state = state, .suspend_cause = suspend_cause };
++
++          (void)pa_asyncmsgq_send(create_sink->asyncmsgq, PA_MSGOBJECT(create_sink), PA_SINK_MESSAGE_SET_STATE, &data, 0, NULL);            
++        }
++        create_sink->state = state;
++    }    
++    return;
++}
+--- pulseaudio-12.2.6.orig/src/modules/alsa/alsa-sink.h
++++ pulseaudio-12.2.6/src/modules/alsa/alsa-sink.h
+@@ -31,4 +31,8 @@ pa_sink* pa_alsa_sink_new(pa_module *m,
+ 
+ void pa_alsa_sink_free(pa_sink *s);
+ 
++void pa_alsa_sink_bt_free(pa_sink *s);
++
++void pa_alsa_notify_sink_thread_state(pa_sink_state_t state, pa_suspend_cause_t suspend_cause);
++
+ #endif
+--- pulseaudio-12.2.6.orig/src/modules/alsa/alsa-source.c
++++ pulseaudio-12.2.6/src/modules/alsa/alsa-source.c
+@@ -53,6 +53,8 @@
+ #include "alsa-util.h"
+ #include "alsa-source.h"
+ 
++#define MESH_PROFILE  "bt_sco" /*bluetooth profile hsp name*/
++
+ /* #define DEBUG_TIMING */
+ 
+ #define DEFAULT_DEVICE "default"
+@@ -78,6 +80,8 @@
+ 
+ #define VOLUME_ACCURACY (PA_VOLUME_NORM/100)
+ 
++#define DEFAULT_BLUETOOTH_PROFILE_HEADSET  2 /*add bluetooth profile HSP*/
++
+ struct userdata {
+     pa_core *core;
+     pa_module *module;
+@@ -149,6 +153,56 @@ enum {
+ 
+ static void userdata_free(struct userdata *u);
+ 
++pa_source *alsa_source_device = NULL; //alsa_source_new save
++
++static int pa_alsa_set_new_source(pa_source *source_p) {
++    pa_assert(source_p);
++
++    alsa_source_device = source_p;
++
++    return 0; 
++}
++
++static pa_source* pa_alsa_get_new_source() {    
++   
++    return alsa_source_device; 
++}
++
++static int get_profile(pa_source_new_data *source_new_data, char *profile_name)
++{
++    if(!source_new_data->card || !profile_name)
++        return -1;
++    
++    pa_log_debug("profile_name = %s", profile_name);   
++   
++    if (!strcmp(profile_name, MESH_PROFILE)) 
++        return DEFAULT_BLUETOOTH_PROFILE_HEADSET;
++
++    return -1;
++}
++
++static bool is_headset_profile(pa_source_new_data *source_new_data, char *profile_name) {
++    int value = get_profile(source_new_data, profile_name);    
++
++    return (value == DEFAULT_BLUETOOTH_PROFILE_HEADSET);
++}
++
++static void connect_ports(void *new_data, char *port_name, char *profile_name) {
++	pa_device_port *port;
++	pa_source_new_data *source_new_data = new_data;
++    
++    if (!source_new_data->card || !port_name)
++        return;    
++
++    pa_log_debug("profile = 0x%x, port_name=%s", get_profile(source_new_data, port_name), port_name);
++
++    if (is_headset_profile(source_new_data, profile_name)) {   
++        pa_assert_se(port = pa_hashmap_get(source_new_data->card->ports, port_name));
++        pa_assert_se(pa_hashmap_put(source_new_data->ports, port_name, port) >= 0);
++        pa_device_port_ref(port);
++    }
++}
++
+ static pa_hook_result_t reserve_cb(pa_reserve_wrapper *r, void *forced, struct userdata *u) {
+     pa_assert(r);
+     pa_assert(u);
+@@ -1800,6 +1854,8 @@ pa_source *pa_alsa_source_new(pa_module
+     bool mute_is_set;
+     pa_alsa_profile_set *profile_set = NULL;
+     void *state = NULL;
++    const char *port_name = NULL;
++    const char *profile_name = NULL;  
+ 
+     pa_assert(m);
+     pa_assert(ma);
+@@ -1917,6 +1973,10 @@ pa_source *pa_alsa_source_new(pa_module
+             pa_modargs_get_value(ma, "device", DEFAULT_DEVICE));
+ 
+     u->paths_dir = pa_xstrdup(pa_modargs_get_value(ma, "paths_dir", NULL));
++    
++    // add supported feature
++    port_name = pa_modargs_get_value(ma, "name", NULL);
++    profile_name = pa_modargs_get_value(ma, "profile", NULL);
+ 
+     if (reserve_init(u, dev_id) < 0)
+         goto fail;
+@@ -2078,6 +2138,9 @@ pa_source *pa_alsa_source_new(pa_module
+         pa_alsa_ucm_add_ports(&data.ports, data.proplist, u->ucm_context, false, card);
+     else if (u->mixer_path_set)
+         pa_alsa_add_ports(&data, u->mixer_path_set, card);
++    
++    // connect pcm port
++    connect_ports(&data, port_name, profile_name);  
+ 
+     u->source = pa_source_new(m->core, &data, PA_SOURCE_HARDWARE|PA_SOURCE_LATENCY|(u->use_tsched ? PA_SOURCE_DYNAMIC_LATENCY : 0));
+     volume_is_set = data.volume_is_set;
+@@ -2185,6 +2248,14 @@ pa_source *pa_alsa_source_new(pa_module
+ 
+     if (profile_set)
+         pa_alsa_profile_set_free(profile_set);
++    
++    // save alsa source card
++    if (card) {
++        if (is_headset_profile(&data, profile_name)) {
++            u->source->priority += 100;
++            pa_alsa_set_new_source(u->source);        
++        }
++    }
+ 
+     return u->source;
+ 
+@@ -2262,3 +2333,42 @@ void pa_alsa_source_free(pa_source *s) {
+ 
+     userdata_free(u);
+ }
++
++void pa_alsa_source_bt_free(pa_source *s) {
++    struct userdata *u;
++    pa_source *create_source = pa_alsa_get_new_source();
++
++    pa_log_debug("%s:alsa_source_bt_free", __func__);
++
++    if (create_source) {
++        pa_source_assert_ref(create_source);
++        pa_assert_se(u = create_source->userdata);
++
++        userdata_free(u);
++    }    
++    
++    return;    
++}
++
++struct set_state_data {
++    pa_source_state_t state;
++    pa_suspend_cause_t suspend_cause;
++};
++
++void pa_alsa_notify_source_thread_state(pa_source_state_t state, pa_suspend_cause_t suspend_cause)
++{   
++    pa_source *create_source = pa_alsa_get_new_source();
++
++    if (create_source) {  
++        create_source->set_state_in_main_thread(create_source, state, suspend_cause);  
++        if (create_source->asyncmsgq) {
++          struct set_state_data data = { .state = state, .suspend_cause = suspend_cause };
++
++          (void)pa_asyncmsgq_send(create_source->asyncmsgq, PA_MSGOBJECT(create_source), PA_SOURCE_MESSAGE_SET_STATE, &data, 0, NULL);     
++        }
++        create_source->state = state;
++    }
++    
++    return;
++}
++
+--- pulseaudio-12.2.6.orig/src/modules/alsa/alsa-source.h
++++ pulseaudio-12.2.6/src/modules/alsa/alsa-source.h
+@@ -31,4 +31,7 @@ pa_source* pa_alsa_source_new(pa_module
+ 
+ void pa_alsa_source_free(pa_source *s);
+ 
++void pa_alsa_notify_source_thread_state(pa_source_state_t state, pa_suspend_cause_t suspend_cause);
++
++void pa_alsa_source_bt_free(pa_source *s);
+ #endif
+--- pulseaudio-12.2.6.orig/src/modules/alsa/alsa-util.c
++++ pulseaudio-12.2.6/src/modules/alsa/alsa-util.c
+@@ -48,6 +48,9 @@
+ #include "udev-util.h"
+ #endif
+ 
++#define LEVEL_BASIC (1<<0)
++#define LEVEL_ID (1<<2)
++
+ static int set_format(snd_pcm_t *pcm_handle, snd_pcm_hw_params_t *hwparams, pa_sample_format_t *f) {
+ 
+     static const snd_pcm_format_t format_trans[] = {
+@@ -1734,3 +1737,233 @@ int pa_alsa_get_hdmi_eld(snd_hctl_elem_t
+ 
+     return 0;
+ }
++
++static void show_control_id(snd_ctl_elem_id_t *id)
++{
++	char *str;
++
++	str = snd_ctl_ascii_elem_id_get(id);
++	if (str)
++		pa_log_debug("%s", str);
++	free(str);
++}
++
++static int show_control(const char *space, snd_hctl_elem_t *elem,
++			int level)
++{
++	int err;
++	unsigned int item, idx, count, *tlv;
++	snd_ctl_elem_type_t type;
++	snd_ctl_elem_id_t *id;
++	snd_ctl_elem_info_t *info;
++	snd_ctl_elem_value_t *control;
++	snd_aes_iec958_t iec958;
++	snd_ctl_elem_id_alloca(&id);
++	snd_ctl_elem_info_alloca(&info);
++	snd_ctl_elem_value_alloca(&control);
++	if ((err = snd_hctl_elem_info(elem, info)) < 0) {
++		pa_log_error("Control hw snd_hctl_elem_info error: %s", snd_strerror(err));
++		return err;
++	}
++	if (level & LEVEL_ID) {
++		snd_hctl_elem_get_id(elem, id);
++		show_control_id(id);
++		pa_log_debug("\n");
++	}
++	count = snd_ctl_elem_info_get_count(info);
++	type = snd_ctl_elem_info_get_type(info);
++
++	switch (type) {
++	case SND_CTL_ELEM_TYPE_INTEGER:
++		pa_log_debug(",min=%li,max=%li,step=%li", 
++		       snd_ctl_elem_info_get_min(info),
++		       snd_ctl_elem_info_get_max(info),
++		       snd_ctl_elem_info_get_step(info));
++		break;
++	case SND_CTL_ELEM_TYPE_INTEGER64:
++		pa_log_debug(",min=%lli,max=%lli,step=%lli",
++		       snd_ctl_elem_info_get_min64(info),
++		       snd_ctl_elem_info_get_max64(info),
++		       snd_ctl_elem_info_get_step64(info));
++		break;
++	case SND_CTL_ELEM_TYPE_ENUMERATED:
++	{
++		unsigned int items = snd_ctl_elem_info_get_items(info);
++		pa_log_debug(",items=%u\n", items);
++		for (item = 0; item < items; item++) {
++			snd_ctl_elem_info_set_item(info, item);
++			if ((err = snd_hctl_elem_info(elem, info)) < 0) {
++				pa_log_error("Control hw element info error: %s", snd_strerror(err));
++				return err;
++			}
++			pa_log_debug("%s; Item #%u '%s'", space, item, snd_ctl_elem_info_get_item_name(info));
++		}
++		break;
++	}
++	default:
++		pa_log_debug("\n");
++		break;
++	}
++
++	if (level & LEVEL_BASIC) {
++		if (!snd_ctl_elem_info_is_readable(info))
++			goto __skip_read;
++		if ((err = snd_hctl_elem_read(elem, control)) < 0) {
++			pa_log_error("Control hw:0 element read error: %s", snd_strerror(err));
++			return err;
++		}
++		
++		for (idx = 0; idx < count; idx++) {
++			if (idx > 0)
++				pa_log_debug(",");
++			switch (type) {
++			case SND_CTL_ELEM_TYPE_BOOLEAN:
++				pa_log_debug("%s", snd_ctl_elem_value_get_boolean(control, idx) ? "on" : "off");
++				break;
++			case SND_CTL_ELEM_TYPE_INTEGER:
++				pa_log_debug("%li", snd_ctl_elem_value_get_integer(control, idx));
++				break;
++			case SND_CTL_ELEM_TYPE_INTEGER64:
++				pa_log_debug("%lli", snd_ctl_elem_value_get_integer64(control, idx));
++				break;
++			case SND_CTL_ELEM_TYPE_ENUMERATED:
++				pa_log_debug("%u", snd_ctl_elem_value_get_enumerated(control, idx));
++				break;
++			case SND_CTL_ELEM_TYPE_BYTES:
++				pa_log_debug("0x%02x", snd_ctl_elem_value_get_byte(control, idx));
++				break;
++			case SND_CTL_ELEM_TYPE_IEC958:
++				snd_ctl_elem_value_get_iec958(control, &iec958);
++				pa_log_error("[AES0=0x%02x AES1=0x%02x AES2=0x%02x AES3=0x%02x]",
++				       iec958.status[0], iec958.status[1],
++				       iec958.status[2], iec958.status[3]);
++				break;
++			default:
++				pa_log_debug("?");
++				break;
++			}
++		}
++	      __skip_read:
++		if (!snd_ctl_elem_info_is_tlv_readable(info))
++			goto __skip_tlv;
++		/* skip ASoC ext bytes controls that may have huge binary TLV data */
++		if (type == SND_CTL_ELEM_TYPE_BYTES &&
++				!snd_ctl_elem_info_is_readable(info) &&
++				!snd_ctl_elem_info_is_writable(info)) {
++			pa_log_error("%s; ASoC TLV Byte control, skipping bytes dump", space);
++			goto __skip_tlv;
++		}
++
++		tlv = malloc(4096);
++		if ((err = snd_hctl_elem_tlv_read(elem, tlv, 4096)) < 0) {
++			pa_log_error("Control hw:0 element TLV read error: %s", snd_strerror(err));
++			free(tlv);
++			return err;
++		}
++		//decode_tlv(strlen(space), tlv, 4096);
++		free(tlv);
++	}
++      __skip_tlv:
++	return 0;
++}
++
++
++int cset(char * name, char *card, char *c, int roflag, int keep_handle)
++{
++	int err;
++	static snd_ctl_t *handle = NULL;
++	snd_ctl_elem_info_t *info;
++	snd_ctl_elem_id_t *id;
++	snd_ctl_elem_value_t *control;
++	snd_ctl_elem_info_alloca(&info);
++	snd_ctl_elem_id_alloca(&id);
++	snd_ctl_elem_value_alloca(&control);
++
++    pa_log_debug("name[%s]card[%s]c[%s]", name, card, c);
++	if (snd_ctl_ascii_elem_id_parse(id, name)) {
++		pa_log_error("Wrong control identifier: %s", name);
++		return -1;
++	}
++
++	if (handle == NULL &&
++	    (err = snd_ctl_open(&handle, card, 0)) < 0) {
++		pa_log_error("Control %s open error: %s", card, snd_strerror(err));
++		return err;
++	}
++ 
++	snd_ctl_elem_info_set_id(info, id);
++   
++	if ((err = snd_ctl_elem_info(handle, info)) < 0) {
++		//if (ignore_error)
++			//return 0;
++		pa_log_error("Cannot find the given element from control %s", card);
++		if (! keep_handle) {
++			snd_ctl_close(handle);
++			handle = NULL;
++		}
++		return err;
++	}
++  
++	snd_ctl_elem_info_get_id(info, id);
++	if (!roflag) {
++        snd_ctl_elem_value_set_id(control, id);
++     
++		if ((err = snd_ctl_elem_read(handle, control)) < 0) {
++			//if (ignore_error)
++				//return 0;
++			pa_log_error("Cannot read the given element from control %s", card);
++			if (! keep_handle) {
++				snd_ctl_close(handle);
++				handle = NULL;
++			}
++			return err;
++		}
++        err = snd_ctl_ascii_value_parse(handle, control, info, c);
++		if (err < 0) {
++ 			//if (!ignore_error)
++				//error("Control %s parse error: %s\n", card, snd_strerror(err));
++			if (!keep_handle) {
++				snd_ctl_close(handle);
++				handle = NULL;
++			}
++			//return ignore_error ? 0 : err;
++            return err;
++		}
++        
++		if ((err = snd_ctl_elem_write(handle, control)) < 0) {
++			//if (!ignore_error)
++				//error("Control %s element write error: %s\n", card, snd_strerror(err));
++			if (!keep_handle) {
++				snd_ctl_close(handle);
++				handle = NULL;
++			}
++			//return ignore_error ? 0 : err;
++             return err;
++		}
++	}
++	if (! keep_handle) {
++		snd_ctl_close(handle);
++		handle = NULL;
++	}
++	{
++		snd_hctl_t *hctl;
++		snd_hctl_elem_t *elem;
++		if ((err = snd_hctl_open(&hctl, card, 0)) < 0) {
++			pa_log_error("Control %s open error: %s", card, snd_strerror(err));
++			return err;
++		}
++   
++		if ((err = snd_hctl_load(hctl)) < 0) {
++			pa_log_error("Control %s load error: %s", card, snd_strerror(err));
++			return err;
++		}
++      
++		elem = snd_hctl_find_elem(hctl, id);
++		if (elem)
++			show_control("  ", elem, LEVEL_BASIC | LEVEL_ID);
++		else
++			pa_log_error("Could not find the specified element");
++		snd_hctl_close(hctl);
++	}
++	return 0;
++}
+--- pulseaudio-12.2.6.orig/src/modules/bluetooth/module-bluez5-device.c
++++ pulseaudio-12.2.6/src/modules/bluetooth/module-bluez5-device.c
+@@ -1,3 +1,5 @@
++
++
+ /***
+   This file is part of PulseAudio.
+ 
+@@ -49,6 +51,8 @@
+ #include "bluez5-util.h"
+ #include "rtp.h"
+ 
++
++
+ PA_MODULE_AUTHOR("João Paulo Rechi Vita");
+ PA_MODULE_DESCRIPTION("BlueZ 5 Bluetooth audio sink and source");
+ PA_MODULE_VERSION(PACKAGE_VERSION);
+@@ -65,12 +69,41 @@ PA_MODULE_USAGE("path=<device object pat
+ #define BITPOOL_DEC_STEP 5
+ #define HSP_MAX_GAIN 15
+ 
++#ifdef HAVE_CODEC_PARAM // the diff on pcm number
++#define HW_SCO_SINK_ARGS(port_name)     pa_sprintf_malloc("name=%s sink_name=bt_sco_sink device=hw:0,1 profile=bt_sco rate=48000", port_name);
++#define HW_SCO_SOURCE_ARGS(port_name)   pa_sprintf_malloc("name=%s source_name=bt_sco_source device=hw:0,1 profile=bt_sco rate=48000", port_name);
++#define HW_CARD "hw:0"
++#else
++#define HW_SCO_SINK_ARGS(port_name)      pa_sprintf_malloc("name=%s sink_name=bt_sco_sink device=hw:1,1 profile=bt_sco rate=8000", port_name);
++#define HW_SCO_SOURCE_ARGS(port_name)    pa_sprintf_malloc("name=%s source_name=bt_sco_source device=hw:1,2 profile=bt_sco rate=8000", port_name);
++#endif
++
+ static const char* const valid_modargs[] = {
+     "path",
+     "autodetect_mtu",
++    "name",
++    "sink_name",
++    "device",
++    "profile",
++    "rate",
+     NULL
+ };
+ 
++static const char* const valid_src_modargs[] = {
++    "path",
++    "autodetect_mtu",
++    "name",
++    "source_name",
++    "device",
++    "profile",
++    "rate",
++    NULL
++};
++
++//save sink/source device
++static pa_sink *p_sink = NULL;
++static pa_source *p_source = NULL;
++
+ enum {
+     BLUETOOTH_MESSAGE_IO_THREAD_FAILED,
+     BLUETOOTH_MESSAGE_STREAM_FD_HUP,
+@@ -969,9 +1002,51 @@ static int source_process_msg(pa_msgobje
+     return pa_source_process_msg(o, code, data, offset, chunk);
+ }
+ 
++static int source_alsa_state_change(pa_source *s, pa_source_state_t cur_state, pa_source_state_t new_state) {
++    static int flag = 0; /*first start sink device*/
++ 
++    if (new_state == PA_SOURCE_RUNNING) {
++        pa_core_set_configured_default_source(s->core, "bt_sco_source");
++        pa_log_debug("set default source bt_sco_source");
++        pa_alsa_notify_source_thread_state(PA_SOURCE_SUSPENDED, PA_SUSPEND_IDLE);
++        pa_alsa_notify_source_thread_state(PA_SOURCE_RUNNING, 0);
++
++#ifdef HAVE_CODEC_PARAM        
++        cset("name=Bt Uplink Switch", HW_CARD, "1", 0, 0);
++#endif             
++
++        if (!flag) {
++            pa_core_set_configured_default_sink(s->core, "bt_sco_sink");
++            pa_log_debug("set default sink bt_sco_sink");
++            pa_alsa_notify_sink_thread_state(PA_SINK_SUSPENDED, PA_SUSPEND_IDLE);
++            pa_alsa_notify_sink_thread_state(PA_SINK_RUNNING, 0);
++    
++#ifdef HAVE_CODEC_PARAM        
++            cset("name=Bt Playback Switch", HW_CARD, "1", 0, 0);
++#endif      
++
++            flag = 1;
++        }
++    } else if (new_state == PA_SOURCE_IDLE && cur_state == PA_SOURCE_RUNNING) {
++         if (strcmp(s->core->default_source->name, "bt_sco_source") == 0) {
++
++#ifdef HAVE_CODEC_PARAM
++            cset("name=Bt Uplink Switch", HW_CARD, "0", 0, 0);                
++#endif
++
++            pa_core_set_configured_default_source(s->core, s->name); 
++         }   
++    } else {
++        flag = 0;        
++    } 
++
++    return 0;   
++}
++
+ /* Called from the IO thread. */
+ static int source_set_state_in_io_thread_cb(pa_source *s, pa_source_state_t new_state, pa_suspend_cause_t new_suspend_cause) {
+     struct userdata *u;
++    int ret = 0;
+ 
+     pa_assert(s);
+     pa_assert_se(u = s->userdata);
+@@ -1012,8 +1087,23 @@ static int source_set_state_in_io_thread
+         case PA_SOURCE_INVALID_STATE:
+             break;
+     }
++    
++    pa_log_debug("cur state:%d, new state:%d, default source:%s, configured source:%s", 
++                 s->state, new_state,
++                 u->core->default_source->name ? u->core->default_source->name : "",
++                 u->core->configured_default_source ? u->core->configured_default_source : "");   
++    
++    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY)  {
++        if (new_suspend_cause == PA_SUSPEND_USER) {
++            if (s->state == PA_SOURCE_RUNNING && new_state == PA_SOURCE_RUNNING) {          
++                pa_core_set_configured_default_source(s->core, "bt_sco_source");
++            }
++        } else {    
++            ret = source_alsa_state_change(s, s->state, new_state);  
++        }
++    }
+ 
+-    return 0;
++    return ret;
+ }
+ 
+ /* Run from main thread */
+@@ -1187,6 +1277,15 @@ static int sink_set_state_in_io_thread_c
+             break;
+     }
+ 
++    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
++        if (new_state == PA_SINK_RUNNING) {
++            pa_core_set_configured_default_sink(s->core, "bt_sco_sink");
++            pa_log_debug("set default sink bt_sco_sink");
++            pa_alsa_notify_sink_thread_state(PA_SINK_SUSPENDED, PA_SUSPEND_IDLE);
++            pa_alsa_notify_sink_thread_state(PA_SINK_RUNNING, 0);
++        }
++    }
++
+     return 0;
+ }
+ 
+@@ -1288,6 +1387,171 @@ static int add_sink(struct userdata *u)
+     return 0;
+ }
+ 
++#ifdef HAVE_CODEC_PARAM
++static int set_bt_playback_switch_cb(int flag) {
++    if (p_sink == NULL) 
++        return -1;
++    if (flag == 1) {
++        cset("name=Bt Playback Switch", HW_CARD, "1", 0, 0);    
++    } else {
++        cset("name=Bt Playback Switch", HW_CARD, "0", 0, 0);         
++    }
++
++    return 0;
++}
++#endif
++
++static int add_sco_sink(struct userdata *u) {
++    pa_modargs *ma = NULL;
++    const char *args = HW_SCO_SINK_ARGS(u->output_port_name);
++    pa_sink_new_data data;
++
++    pa_assert(u->transport);
++
++    pa_sink_new_data_init(&data);
++    data.module = u->module;
++    data.card = u->card;
++    data.driver = __FILE__;  //bluez_sink
++    data.name = pa_sprintf_malloc("bluez_sink.%s.%s", u->device->address, pa_bluetooth_profile_to_string(u->profile));
++    data.namereg_fail = false;
++    pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++    pa_sink_new_data_set_sample_spec(&data, &u->sample_spec);
++    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
++        pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
++
++    connect_ports(u, &data, PA_DIRECTION_OUTPUT);
++
++    if (!u->transport_acquired)
++        switch (u->profile) {
++            case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
++                data.suspend_cause = PA_SUSPEND_USER;
++                break;
++            case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
++                if (u->stream_fd == -EAGAIN)
++                    data.suspend_cause = PA_SUSPEND_USER;
++                else
++                    pa_assert_not_reached();
++                break;
++            case PA_BLUETOOTH_PROFILE_A2DP_SINK:
++            case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
++            case PA_BLUETOOTH_PROFILE_OFF:
++                pa_assert_not_reached();
++                break;
++        }
++
++    u->sink = pa_sink_new(u->core, &data, PA_SINK_HARDWARE|PA_SINK_LATENCY);
++    pa_sink_new_data_done(&data);
++    if (!u->sink) {
++        pa_log_error("Failed to create sink");
++        return -1;
++    }
++    
++    // create alsa sink
++    pa_alsa_refcnt_inc();
++    if (!(ma = pa_modargs_new(args, valid_modargs))) {
++        pa_log_error("parse args fail");
++        goto fail;
++    }
++    
++    if (!(p_sink = pa_alsa_sink_new(u->module, ma, __FILE__, u->card, NULL))) {
++        pa_log_error("alsa_sink_new fail");    
++        goto fail;
++    }
++    pa_modargs_free(ma);
++
++    u->sink->userdata = u;
++    u->sink->parent.process_msg = sink_process_msg;
++    u->sink->set_state_in_io_thread = sink_set_state_in_io_thread_cb;
++
++#ifdef HAVE_CODEC_PARAM
++    u->core->set_amixer_bt_playback = set_bt_playback_switch_cb;
++#endif
++
++    pa_sink_set_set_volume_callback(u->sink, sink_set_volume_cb);
++    u->sink->n_volume_steps = 16;
++   
++    return 0;
++fail:
++  if (ma)
++    pa_modargs_free(ma);
++
++  pa__done(u->module);
++  return -1;
++}
++
++static int add_sco_source(struct userdata *u) {
++    pa_source_new_data data;
++    pa_modargs *ma = NULL;
++    const char *args = HW_SCO_SOURCE_ARGS(u->input_port_name);
++ 
++    pa_assert(u->transport);
++
++    pa_source_new_data_init(&data);
++    data.module = u->module;
++    data.card = u->card;
++    data.driver = __FILE__;  //bluez_source
++    data.name = pa_sprintf_malloc("bluez_source.%s.%s", u->device->address, pa_bluetooth_profile_to_string(u->profile));
++    data.namereg_fail = false;
++    pa_proplist_sets(data.proplist, "bluetooth.protocol", pa_bluetooth_profile_to_string(u->profile));
++    pa_source_new_data_set_sample_spec(&data, &u->sample_spec);
++    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT)
++        pa_proplist_sets(data.proplist, PA_PROP_DEVICE_INTENDED_ROLES, "phone");
++
++    connect_ports(u, &data, PA_DIRECTION_INPUT);
++
++    if (!u->transport_acquired)
++        switch (u->profile) {
++            case PA_BLUETOOTH_PROFILE_A2DP_SOURCE:
++            case PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY:
++                data.suspend_cause = PA_SUSPEND_USER;
++                break;
++            case PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT:
++                if (u->stream_fd == -EAGAIN)
++                    data.suspend_cause = PA_SUSPEND_USER;
++                else
++                    pa_assert_not_reached();
++                break;
++            case PA_BLUETOOTH_PROFILE_A2DP_SINK:
++            case PA_BLUETOOTH_PROFILE_OFF:
++                pa_assert_not_reached();
++                break;
++        }
++
++    u->source = pa_source_new(u->core, &data, PA_SOURCE_HARDWARE|PA_SOURCE_LATENCY);
++    pa_source_new_data_done(&data);
++    if (!u->source) {
++        pa_log_error("Failed to create source");
++        return -1;
++    }
++    u->source->userdata = u;
++    u->source->parent.process_msg = source_process_msg;
++    u->source->set_state_in_io_thread = source_set_state_in_io_thread_cb;
++
++    // create alsa source
++    pa_alsa_refcnt_inc();
++    if (!(ma = pa_modargs_new(args, valid_src_modargs))) {
++        pa_log_error("Failed to parse module arguments");
++        goto fail;
++    }
++    if (!(p_source = pa_alsa_source_new(u->module, ma, __FILE__, u->card, NULL))) {
++        pa_log_error("pa_alsa_source_new fail");
++        goto fail;
++    }
++    pa_modargs_free(ma);
++
++    if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
++        pa_source_set_set_volume_callback(u->source, source_set_volume_cb);
++        u->source->n_volume_steps = 16;
++    }
++
++    return 0;
++fail:
++  if (ma)
++    pa_modargs_free(ma);
++  pa__done(u->module);
++  return -1;
++}
++
+ /* Run from main thread */
+ static void transport_config(struct userdata *u) {
+     if (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY) {
+@@ -1448,12 +1712,17 @@ static pa_direction_t get_profile_direct
+     return profile_direction[p];
+ }
+ 
++static bool is_headset_profile(struct userdata *u) {
++    pa_assert(u);
++ 
++    return (u->profile == PA_BLUETOOTH_PROFILE_HEADSET_HEAD_UNIT || u->profile == PA_BLUETOOTH_PROFILE_HEADSET_AUDIO_GATEWAY);
++}
++
+ /* Run from main thread */
+ static int init_profile(struct userdata *u) {
+     int r = 0;
+     pa_assert(u);
+     pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
+-
+     if (setup_transport(u) < 0)
+         return -1;
+ 
+@@ -1470,6 +1739,33 @@ static int init_profile(struct userdata
+     return r;
+ }
+ 
++/* Run from main thread */
++static int init_headset_profile(struct userdata *u) {
++    int r = 0;
++    pa_assert(u);
++    pa_assert(u->profile != PA_BLUETOOTH_PROFILE_OFF);
++
++    if (setup_transport(u) < 0)
++        return -1;
++
++    pa_assert(u->transport);
++
++#ifdef HAVE_CODEC_PARAM        
++    cset("name=Bt Uplink Switch", HW_CARD, "0", 0, 0);
++    cset("name=Bt Playback Switch", HW_CARD, "0", 0, 0);
++#endif
++
++    if (get_profile_direction (u->profile) & PA_DIRECTION_OUTPUT)
++        if (add_sco_sink(u) < 0)
++            r = -1;
++
++    if (get_profile_direction (u->profile) & PA_DIRECTION_INPUT)
++        if (add_sco_source(u) < 0)
++            r = -1;
++
++    return r;
++}
++
+ static int write_block(struct userdata *u) {
+     int n_written;
+ 
+@@ -1811,11 +2107,27 @@ static void stop_thread(struct userdata
+     }
+ 
+     if (u->sink) {
++        if (p_sink) {
++#ifdef HAVE_CODEC_PARAM        
++            cset("name=Bt Playback Switch", HW_CARD, "0", 0, 0);
++#endif
++            pa_alsa_sink_bt_free(u->sink);
++	        p_sink = NULL;
++            pa_alsa_refcnt_dec();
++        }
+         pa_sink_unref(u->sink);
+         u->sink = NULL;
+     }
+ 
+     if (u->source) {
++        if (p_source) {
++#ifdef HAVE_CODEC_PARAM        
++            cset("name=Bt Uplink Switch", HW_CARD, "0", 0, 0);
++#endif
++            pa_alsa_source_bt_free(u->source);
++	        p_source = NULL;
++            pa_alsa_refcnt_dec();
++        }
+         pa_source_unref(u->source);
+         u->source = NULL;
+     }
+@@ -2053,7 +2365,6 @@ static int set_profile_cb(pa_card *c, pa
+     pa_assert_se(u = c->userdata);
+ 
+     p = PA_CARD_PROFILE_DATA(new_profile);
+-
+     if (*p != PA_BLUETOOTH_PROFILE_OFF) {
+         const pa_bluetooth_device *d = u->device;
+ 
+@@ -2065,11 +2376,19 @@ static int set_profile_cb(pa_card *c, pa
+ 
+     stop_thread(u);
+ 
++    pa_log_debug("active profile:%s ,new profile:%s", u->card->active_profile->name, new_profile->name);
+     u->profile = *p;
+ 
+-    if (u->profile != PA_BLUETOOTH_PROFILE_OFF)
+-        if (init_profile(u) < 0)
+-            goto off;
++    if (u->profile != PA_BLUETOOTH_PROFILE_OFF) {
++        if (is_headset_profile(u)) {
++            if (init_headset_profile(u) < 0)
++                goto off;
++        }
++        else {
++            if (init_profile(u) < 0)
++                goto off;
++        }
++    }
+ 
+     if (u->sink || u->source)
+         if (start_thread(u) < 0)
+@@ -2440,9 +2759,16 @@ int pa__init(pa_module* m) {
+     u->msg->card = u->card;
+     u->stream_setup_done = false;
+ 
+-    if (u->profile != PA_BLUETOOTH_PROFILE_OFF)
+-        if (init_profile(u) < 0)
+-            goto off;
++    if (u->profile != PA_BLUETOOTH_PROFILE_OFF) {
++        if (is_headset_profile(u)) {
++            if (init_headset_profile(u) < 0)
++                goto off;
++        }
++        else {
++            if (init_profile(u) < 0)
++                goto off;
++        }
++    }
+ 
+     if (u->sink || u->source)
+         if (start_thread(u) < 0)
+--- pulseaudio-12.2.6.orig/src/pulsecore/core-util.h
++++ pulseaudio-12.2.6/src/pulsecore/core-util.h
+@@ -42,6 +42,8 @@
+ #error "Please include config.h before including this file!"
+ #endif
+ 
++#define HAVE_CODEC_PARAM
++
+ struct timeval;
+ 
+ /* These resource limits are pretty new on Linux, let's define them
+--- pulseaudio-12.2.6.orig/src/pulsecore/core.h
++++ pulseaudio-12.2.6/src/pulsecore/core.h
+@@ -25,6 +25,9 @@
+ #include <pulse/sample.h>
+ #include <pulsecore/cpu.h>
+ 
++
++//#define HAVE_HW_PARAM
++
+ /* This is a bitmask that encodes the cause why a sink/source is
+  * suspended.
+  *
+@@ -231,6 +234,9 @@ struct pa_core {
+ 
+     /* hooks */
+     pa_hook hooks[PA_CORE_HOOK_MAX];
++    
++    /*amxier add*/
++    int (*set_amixer_bt_playback)(int flag);
+ };
+ 
+ PA_DECLARE_PUBLIC_CLASS(pa_core);
+--- pulseaudio-12.2.6.orig/src/pulsecore/protocol-native.c
++++ pulseaudio-12.2.6/src/pulsecore/protocol-native.c
+@@ -72,6 +72,7 @@
+ #define DEFAULT_TLENGTH_MSEC 2000 /* 2s */
+ #define DEFAULT_PROCESS_MSEC 20   /* 20ms */
+ #define DEFAULT_FRAGSIZE_MSEC DEFAULT_TLENGTH_MSEC
++#define DEFAULT_PROFILE_LENTH 11
+ 
+ struct pa_native_protocol;
+ 
+@@ -4274,7 +4275,9 @@ static void command_remove_proplist(pa_p
+ 
+         if (pa_tagstruct_gets(t, &k) < 0) {
+             protocol_error(c);
+-            pa_strlist_free(l);
++            pa_strlist_free(l);/*  source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0); 
++                source->set_state_in_io_thread(source, PA_SOURCE_IDLE, 0); 
++                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0);  */ 
+             return;
+         }
+ 
+@@ -4327,6 +4330,7 @@ static void command_remove_proplist(pa_p
+ static void command_set_default_sink_or_source(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata) {
+     pa_native_connection *c = PA_NATIVE_CONNECTION(userdata);
+     const char *s;
++    static int count = 0;
+ 
+     pa_native_connection_assert_ref(c);
+     pa_assert(t);
+@@ -4358,6 +4362,43 @@ static void command_set_default_sink_or_
+     }
+ 
+     pa_pstream_send_simple_ack(c->pstream, tag);
++
++#ifdef HAVE_CODEC_PARAM
++    /*add amixer switch on/off*/    
++    if (command == PA_COMMAND_SET_DEFAULT_SINK) {
++        pa_sink *sink;
++        pa_assert(command == PA_COMMAND_SET_DEFAULT_SINK);
++
++        sink = pa_namereg_get(c->protocol->core, s, PA_NAMEREG_SINK);
++
++        CHECK_VALIDITY(c->pstream, sink, tag, PA_ERR_NOENTITY);
++             
++        if (sink->name && strlen(sink->name) >= DEFAULT_PROFILE_LENTH && strncmp(sink->name, "bluez_sink.", DEFAULT_PROFILE_LENTH) == 0) {
++            if (c->protocol->core->set_amixer_bt_playback) {
++                pa_log_debug("amixer set on success");
++                c->protocol->core->set_amixer_bt_playback(1);
++            }
++        } else {
++            if (c->protocol->core->set_amixer_bt_playback) {
++                pa_log_debug("amixer set off success");
++                c->protocol->core->set_amixer_bt_playback(0);
++            }
++        }
++    }
++#endif
++    if (command == PA_COMMAND_SET_DEFAULT_SOURCE) {
++        pa_source *source;
++
++        source = pa_namereg_get(c->protocol->core, s, PA_NAMEREG_SOURCE);
++        CHECK_VALIDITY(c->pstream, source, tag, PA_ERR_NOENTITY);
++             
++        if (source->name && strlen(source->name) >= DEFAULT_PROFILE_LENTH && strncmp(source->name, "bluez_source.", DEFAULT_PROFILE_LENTH) == 0) {         
++            if (source->set_state_in_io_thread) {
++                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, PA_SUSPEND_USER);      
++            }
++        }          
++    }
++
+ }
+ 
+ static void command_set_stream_name(pa_pdispatch *pd, uint32_t command, uint32_t tag, pa_tagstruct *t, void *userdata) {
