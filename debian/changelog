@@ -1,3 +1,10 @@
+pulseaudio (12.2.9+dde) unstable; urgency=medium
+
+  * fixed bluetooth recording function
+  * Modify sampling rate, buffer of audio stream and support huawei sink/source
+
+ -- Felipe deepin <hushijia@uniontech.com>  Wed, 27 May 2020 13:07:15 +0800
+
 pulseaudio (12.2-4+deb10u1) buster; urgency=medium
 
   * Pick upstream patch fixing mute state restoring (Closes: #913102)
