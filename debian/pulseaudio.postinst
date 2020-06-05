@@ -14,6 +14,10 @@ set -e
 # for details, see http://www.debian.org/doc/debian-policy/ or
 # the debian-policy package
 
+mv /opt/daemon.conf /etc/pulse/
+mv /opt/default.pa /etc/pulse/
+mv /opt/system.pa /etc/pulse/
+
 PULSEAUDIO=/usr/bin/pulseaudio
 
 trigger_udev() {
