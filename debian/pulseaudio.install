@@ -1,8 +1,8 @@
 #!/usr/bin/dh-exec
 
-etc/pulse/default.pa
-etc/pulse/system.pa
-etc/pulse/daemon.conf
+etc/pulse/default.pa /opt/
+etc/pulse/system.pa /opt/
+etc/pulse/daemon.conf /opt/
 etc/dbus-1/system.d/pulseaudio-system.conf
 etc/xdg/autostart/pulseaudio.desktop
 [linux-any] lib/udev/rules.d/90-pulseaudio.rules
