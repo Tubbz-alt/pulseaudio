@@ -6,3 +6,4 @@ sink-source-Don-t-change-suspend-cause-when-unlinking.patch
 deepin_port_switch.patch
 deepin-analog-input-front-mic-conf-jack.patch
 deepin-bug19177-20942-add-conf-to-adapte-huawei-T100-board.patch
+bug28123-increase-the-volume-step-mapping-of-the-sound-card.patch 
