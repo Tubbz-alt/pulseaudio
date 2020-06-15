@@ -1,3 +1,9 @@
+pulseaudio (12.2.9.1-1+dde0102) unstable; urgency=medium
+
+  * fixed insert hdmi lead to coredump repair
+
+ -- Felipe deepin <hushijia@uniontech.com>  Mon, 15 Jun 2020 16:15:15 +0800
+
 pulseaudio (12.2.9.1-1+dde) unstable; urgency=medium
 
   * fixed /etc/pulse/ configuration to take effect
