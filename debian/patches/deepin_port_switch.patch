@@ -129,7 +129,7 @@ index 321db36..e67d3d4 100644
 +        return 0;
 +
 +    pa_card_profile *profile;
-+    uint32_t state;
++    void *state;
 +    PA_HASHMAP_FOREACH(profile, port->profiles, state) {
 +        if (!profile)
 +            continue;
