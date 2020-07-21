@@ -1,14 +1,14 @@
-Description: Fix Modify sampling rate, buffer of audio stream and support huawei sink/source
-
+Fix the problem that the sampling rate is 48000 and loading 3a, the hisi module fails
 ---
 The information above should follow the Patch Tagging Guidelines, please
 checkout http://dep.debian.net/deps/dep3/ to learn about the format. Here
 are templates for supplementary fields that you might want to add:
 
-Bug: https://pms.uniontech.com/zentao/task-view-23141.html
+Bug: https://pms.uniontech.com/zentao/task-view-30365.html
 Author: huawei
 Reviewed-By: hushijia@uniontech.com
-Last-Update: 2020-05-14
+Last-Update: 2020-07-20
+
 
 --- pulseaudio-12.2.6.orig/src/daemon/daemon.conf.in
 +++ pulseaudio-12.2.6/src/daemon/daemon.conf.in
@@ -19,7 +19,7 @@ Last-Update: 2020-05-14
 -; default-sample-format = s16le
 -; default-sample-rate = 44100
 +default-sample-format = s16le
-+default-sample-rate = 44800
++default-sample-rate = 48000
  ; alternate-sample-rate = 48000
 -; default-sample-channels = 2
 -; default-channel-map = front-left,front-right
@@ -41,9 +41,9 @@ Last-Update: 2020-05-14
  ### Make some devices default
 -#set-default-sink output
 -#set-default-source input
-+set-default-sink alsa_output.platform-sound_hi6405.analog-stereo
-+load-module module-3a-audio 3aUseMasterFormat=1 3aSinkMaster=alsa_output.platform-sound_hi6405.analog-stereo 3aSaveAec=1 3aSourceName=hw_source
-+load-module module-histen-audio HiSaveAec=1 HiSinkName=hw_sink
-+set-default-sink hw_sink
-+set-default-source hw_source
-+set-default-sink hw_sink
++#set-default-sink alsa_output.platform-sound_hi6405.analog-stereo
++#load-module module-3a-audio 3aUseMasterFormat=1 3aSinkMaster=alsa_output.platform-sound_hi6405.analog-stereo 3aSaveAec=1 3aSourceName=hw_source
++#load-module module-histen-audio HiSaveAec=1 HiSinkName=hw_sink
++#set-default-sink hw_sink
++#set-default-source hw_source
++#set-default-sink hw_sink
