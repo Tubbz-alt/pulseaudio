@@ -1,3 +1,9 @@
+pulseaudio (12.2.9.1-1+dde0102.1) unstable; urgency=medium
+
+  * fixed the problem that the sampling rate is 48000 and loading 3a, the hisi module failed 
+
+ -- Felipe deepin <hushijia@uniontech.com>  Tue, 21 Jul 2020 15:59:15 +0800
+
 pulseaudio (12.2.9.1-1+dde0102) unstable; urgency=medium
 
   * fixed insert hdmi lead to coredump repair
