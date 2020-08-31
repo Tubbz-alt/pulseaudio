@@ -8,3 +8,4 @@ deepin-analog-input-front-mic-conf-jack.patch
 deepin-bug19177-20942-add-conf-to-adapte-huawei-T100-board.patch
 bug28123-increase-the-volume-step-mapping-of-the-sound-card.patch 
 deepin-bug28591-crash-when-playing-music.patch
+update-the-configuration-file-of-realtek-sound-card-st2557.patch

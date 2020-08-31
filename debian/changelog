@@ -1,3 +1,11 @@
+pulseaudio (12.2.10-1+dde) unstable; urgency=medium
+
+  * Update the configuration file of realtek sound
+    card(st2557-pc-usb-audio.conf).
+
+ -- changlianzhi <changlianzhi@uniontech.com>  Mon, 31 Aug 2020 10:00:19 +0800
+
+
 pulseaudio (12.2-4+deb10u1) buster; urgency=medium
 
   * Pick upstream patch fixing mute state restoring (Closes: #913102)
