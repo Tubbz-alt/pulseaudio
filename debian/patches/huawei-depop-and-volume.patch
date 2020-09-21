@@ -1,0 +1,646 @@
+Index: pulseaudio-12.2.9.1/src/modules/alsa/alsa-sink.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/modules/alsa/alsa-sink.c
++++ pulseaudio-12.2.9.1/src/modules/alsa/alsa-sink.c
+@@ -176,31 +176,31 @@ pa_sink *alsa_sink_device = NULL; //alsa
+ static int pa_alsa_set_new_sink(pa_sink *sink_p) {
+     pa_assert(sink_p);
+     alsa_sink_device = sink_p;
+-  
+-    return 0; 
++
++    return 0;
+ }
+ 
+-static pa_sink* pa_alsa_get_new_sink() {    
+-   
+-    return alsa_sink_device; 
++static pa_sink* pa_alsa_get_new_sink() {
++
++    return alsa_sink_device;
+ }
+ 
+ static int get_profile(pa_sink_new_data *sink_new_data, char *profile_name)
+ {
+     if(!sink_new_data->card || !profile_name)
+         return -1;
+-    
+-    pa_log_debug("profile_name = %s", profile_name);    
+-    
++
++    pa_log_debug("profile_name = %s", profile_name);
++
+     if (!strcmp(profile_name, MESH_PROFILE))
+         return DEFAULT_BLUETOOTH_PROFILE_HEADSET;
+-    
++
+     return -1;
+ }
+ 
+ static bool is_headset_profile(pa_sink_new_data *sink_new_data, char *profile_name) {
+ 
+-    int value = get_profile(sink_new_data, profile_name);    
++    int value = get_profile(sink_new_data, profile_name);
+ 
+     return (value == DEFAULT_BLUETOOTH_PROFILE_HEADSET);
+ }
+@@ -209,11 +209,11 @@ static void connect_ports(void *new_data
+ 	pa_device_port *port;
+     pa_sink_new_data *sink_new_data = new_data;
+ 
+-    if (!sink_new_data->card || !port_name) 
+-        return;    
++    if (!sink_new_data->card || !port_name)
++        return;
+ 
+     pa_log_debug("input profile = 0x%x, port_name=%s", get_profile(sink_new_data, port_name), port_name);
+-   
++
+     if (is_headset_profile(sink_new_data, profile_name)) {
+ 		pa_assert_se(port = pa_hashmap_get(sink_new_data->card->ports, port_name));
+ 		pa_assert_se(pa_hashmap_put(sink_new_data->ports, port_name, port) >= 0);
+@@ -759,6 +759,7 @@ static int mmap_write(struct userdata *u
+     return work_done ? 1 : 0;
+ }
+ 
++static FILE *smTest = NULL;
+ static int unix_write(struct userdata *u, pa_usec_t *sleep_usec, bool polled, bool on_timeout) {
+     bool work_done = false;
+     pa_usec_t max_sleep_usec = 0, process_usec = 0;
+@@ -843,6 +844,7 @@ static int unix_write(struct userdata *u
+             snd_pcm_sframes_t frames;
+             void *p;
+             size_t written;
++            //int16_t* dataIn;
+ 
+ /*         pa_log_debug("%lu frames to write", (unsigned long) frames); */
+ 
+@@ -857,9 +859,18 @@ static int unix_write(struct userdata *u
+                 frames = (snd_pcm_sframes_t) (n_bytes/u->frame_size);
+ 
+             p = pa_memblock_acquire(u->memchunk.memblock);
++            //dataIn = p + u->memchunk.index;
++            //HandleThreeBufferDePop(dataIn, frames * u->frame_size);
++            //frames = snd_pcm_writei(u->pcm_handle, (const uint8_t*) dataIn, (snd_pcm_uframes_t) frames);
+             frames = snd_pcm_writei(u->pcm_handle, (const uint8_t*) p + u->memchunk.index, (snd_pcm_uframes_t) frames);
+             pa_memblock_release(u->memchunk.memblock);
+ 
++            if (smTest == NULL) {
++                smTest = fopen("/tmp/smTest.pcm", "wb");
++            } else {
++                fwrite(p + u->memchunk.index, 1, frames * u->frame_size, smTest);
++            }
++
+             if (PA_UNLIKELY(frames < 0)) {
+ 
+                 if (!after_avail && (int) frames == -EAGAIN)
+@@ -900,7 +911,7 @@ static int unix_write(struct userdata *u
+         }
+     }
+ 
+-    input_underrun = pa_sink_process_input_underruns(u->sink, left_to_play);
++    //input_underrun = pa_sink_process_input_underruns(u->sink, left_to_play);
+ 
+     if (u->use_tsched) {
+         pa_usec_t underrun_sleep = pa_bytes_to_usec_round_up(input_underrun, &u->sink->sample_spec);
+@@ -2160,8 +2171,8 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+     bool mute_is_set;
+     pa_alsa_profile_set *profile_set = NULL;
+     void *state = NULL;
+-    const char *port_name = NULL;    
+-    const char *profile_name = NULL; 
++    const char *port_name = NULL;
++    const char *profile_name = NULL;
+ 
+     pa_assert(m);
+     pa_assert(ma);
+@@ -2461,8 +2472,8 @@ pa_sink *pa_alsa_sink_new(pa_module *m,
+         pa_alsa_ucm_add_ports(&data.ports, data.proplist, u->ucm_context, true, card);
+     else if (u->mixer_path_set)
+         pa_alsa_add_ports(&data, u->mixer_path_set, card);
+-    
+-    // connect data to card port 
++
++    // connect data to card port
+     connect_ports(&data, port_name, profile_name);
+ 
+     u->sink = pa_sink_new(m->core, &data, PA_SINK_HARDWARE | PA_SINK_LATENCY | (u->use_tsched ? PA_SINK_DYNAMIC_LATENCY : 0) |
+@@ -2705,16 +2716,16 @@ void pa_alsa_sink_free(pa_sink *s) {
+ 
+ void pa_alsa_sink_bt_free(pa_sink *s) {
+     struct userdata *u;
+-    pa_sink *create_sink;    
++    pa_sink *create_sink;
+ 
+     pa_log_debug("%s:alsa sink free", __func__);
+-    
+-    create_sink = pa_alsa_get_new_sink();    
++
++    create_sink = pa_alsa_get_new_sink();
+     if (create_sink){
+        pa_sink_assert_ref(create_sink);
+        pa_assert_se(u = create_sink->userdata);
+-    
+-       userdata_free(u); 
++
++       userdata_free(u);
+     }
+     return;
+ }
+@@ -2725,17 +2736,17 @@ struct set_state_data {
+ };
+ 
+ void pa_alsa_notify_sink_thread_state(pa_sink_state_t state, pa_suspend_cause_t suspend_cause)
+-{   
+-    pa_sink *create_sink = pa_alsa_get_new_sink(); 
++{
++    pa_sink *create_sink = pa_alsa_get_new_sink();
+     if (create_sink)
+-    {          
+-        create_sink->set_state_in_main_thread(create_sink, state, suspend_cause);  
++    {
++        create_sink->set_state_in_main_thread(create_sink, state, suspend_cause);
+         if (create_sink->asyncmsgq) {
+           struct set_state_data data = { .state = state, .suspend_cause = suspend_cause };
+ 
+-          (void)pa_asyncmsgq_send(create_sink->asyncmsgq, PA_MSGOBJECT(create_sink), PA_SINK_MESSAGE_SET_STATE, &data, 0, NULL);            
++          (void)pa_asyncmsgq_send(create_sink->asyncmsgq, PA_MSGOBJECT(create_sink), PA_SINK_MESSAGE_SET_STATE, &data, 0, NULL);
+         }
+         create_sink->state = state;
+-    }    
++    }
+     return;
+ }
+Index: pulseaudio-12.2.9.1/src/pulse/volume.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulse/volume.c
++++ pulseaudio-12.2.9.1/src/pulse/volume.c
+@@ -251,15 +251,19 @@ double pa_sw_volume_to_dB(pa_volume_t v)
+ 
+     pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), PA_DECIBEL_MININFTY);
+ 
+-    if (v <= PA_VOLUME_MUTED) {
++    if (v <= PA_VOLUME_MUTED)
+         return PA_DECIBEL_MININFTY;
+-    } else if (v<=PA_VOLUME_TH1) { /* 0% ~ 10%  */
+-        return linear_to_dB(pa_sw_volume_to_linear_quick(v)) + linear_to_dB(pa_sw_volume_to_linear_slow(PA_VOLUME_TH1)) + linear_to_dB(pa_sw_volume_to_linear(PA_VOLUME_TH2));
+-    } else if (v<=PA_VOLUME_TH2) { /* 10% ~ 75%  */
+-        return linear_to_dB(pa_sw_volume_to_linear_slow(v)) + linear_to_dB(pa_sw_volume_to_linear(PA_VOLUME_TH2));
+-    } else { /* 75% ~ 150%  */
+-        return linear_to_dB(pa_sw_volume_to_linear(v));
+-    }
++
++    return linear_to_dB(pa_sw_volume_to_linear(v));
++}
++
++double pa_sw_volume_to_dB_expect(pa_volume_t v) {
++    pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), PA_DECIBEL_MININFTY);
++
++    if (v <= PA_VOLUME_MUTED)
++        return PA_DECIBEL_MININFTY;
++
++    return linear_to_dB(pa_sw_volume_to_linear_expect(v));
+ }
+ 
+ pa_volume_t pa_sw_volume_from_linear(double v) {
+@@ -296,7 +300,7 @@ double pa_sw_volume_to_linear(pa_volume_
+     return f*f*f;
+ }
+ 
+-double pa_sw_volume_to_linear_slow(pa_volume_t v) { /* 10% ~ 75% */
++double pa_sw_volume_to_linear_expect(pa_volume_t v) {
+     double f;
+ 
+     pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), 0.0);
+@@ -307,29 +311,11 @@ double pa_sw_volume_to_linear_slow(pa_vo
+     if (v == PA_VOLUME_NORM)
+         return 1.0;
+ 
+-    f = ((double) v / PA_VOLUME_TH2);
+-
+-    return f*f;
+-    pa_log_warn("Add for Pangu");
+-}
+-
+-double pa_sw_volume_to_linear_quick(pa_volume_t v) { /* 0% ~ 10% */
+-    double f;
+-
+-    pa_return_val_if_fail(PA_VOLUME_IS_VALID(v), 0.0);
+-
+-    if (v <= PA_VOLUME_MUTED)
+-        return 0.0;
+-
+-    if (v == PA_VOLUME_NORM)
+-        return 1.0;
+-
+-    f = ((double) v / PA_VOLUME_TH1);
++    f = ((double) v / PA_VOLUME_NORM);
+ 
+-    return f*f*f;
++    return pow(f, POW_VALUE);
+ }
+ 
+-
+ char *pa_cvolume_snprint(char *s, size_t l, const pa_cvolume *c) {
+     unsigned channel;
+     bool first = true;
+Index: pulseaudio-12.2.9.1/src/pulse/volume.h
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulse/volume.h
++++ pulseaudio-12.2.9.1/src/pulse/volume.h
+@@ -122,8 +122,7 @@ typedef uint32_t pa_volume_t;
+ /** Muted (minimal valid) volume (0%, -inf dB) */
+ #define PA_VOLUME_MUTED ((pa_volume_t) 0U)
+ /** Add for Pangu **/
+-#define PA_VOLUME_TH1 ((pa_volume_t) 0x199aU) /* 10% */
+-#define PA_VOLUME_TH2 ((pa_volume_t) 0xc000U) /* 75% */
++#define POW_VALUE 1.5 
+ /** End add **/
+ /** Maximum valid volume we can store. \since 0.9.15 */
+ #define PA_VOLUME_MAX ((pa_volume_t) UINT32_MAX/2)
+@@ -313,6 +312,9 @@ pa_volume_t pa_sw_volume_from_dB(double
+ 
+ /** Convert a volume to a decibel value (amplitude, not power). This is only valid for software volumes! */
+ double pa_sw_volume_to_dB(pa_volume_t v) PA_GCC_CONST;
++/** Add for Pangu **/
++double pa_sw_volume_to_dB_expect(pa_volume_t v) PA_GCC_CONST;
++/** Add end **/
+ 
+ /** Convert a linear factor to a volume. 0.0 and less is muted while
+  * 1.0 is PA_VOLUME_NORM. This is only valid for software volumes! */
+@@ -321,8 +323,7 @@ pa_volume_t pa_sw_volume_from_linear(dou
+ /** Convert a volume to a linear factor. This is only valid for software volumes! */
+ double pa_sw_volume_to_linear(pa_volume_t v) PA_GCC_CONST;
+ /** Add for Pangu **/
+-double pa_sw_volume_to_linear_quick(pa_volume_t v) PA_GCC_CONST;
+-double pa_sw_volume_to_linear_slow(pa_volume_t v) PA_GCC_CONST;
++double pa_sw_volume_to_linear_expect(pa_volume_t v) PA_GCC_CONST;
+ /** Add end **/
+ 
+ #ifdef INFINITY
+Index: pulseaudio-12.2.9.1/src/pulsecore/mix.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulsecore/mix.c
++++ pulseaudio-12.2.9.1/src/pulsecore/mix.c
+@@ -34,6 +34,22 @@
+ #include "mix.h"
+ 
+ #define VOLUME_PADDING 32
++#define PA_SQRT1 60
++
++static int32_t* pa_volume_optimize(int32_t volume)
++{
++    unsigned channel;
++    double f;
++    f = pa_sw_volume_to_dB_expect(volume);
++    if(volume <= PA_VOLUME_MUTED) {
++        volume = PA_VOLUME_MUTED;
++    } else if (volume < PA_VOLUME_NORM) {
++    volume = (int32_t)((pow(10, f/PA_SQRT1)) * PA_VOLUME_NORM);
++    } else {
++        volume = PA_VOLUME_NORM;
++    }
++    return volume;
++}
+ 
+ static void calc_linear_integer_volume(int32_t linear[], const pa_cvolume *volume) {
+     unsigned channel, nchannels, padding;
+@@ -46,6 +62,9 @@ static void calc_linear_integer_volume(i
+     for (channel = 0; channel < nchannels; channel++)
+         linear[channel] = (int32_t) lrint(pa_sw_volume_to_linear(volume->values[channel]) * 0x10000);
+ 
++    for (channel = 0; channel < nchannels; channel++)
++        linear[channel] = pa_volume_optimize(linear[channel]);
++
+     for (padding = 0; padding < VOLUME_PADDING; padding++, channel++)
+         linear[channel] = linear[padding];
+ }
+Index: pulseaudio-12.2.9.1/src/pulsecore/protocol-native.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulsecore/protocol-native.c
++++ pulseaudio-12.2.9.1/src/pulsecore/protocol-native.c
+@@ -262,6 +262,8 @@ static void source_output_send_event_cb(
+ static int sink_input_process_msg(pa_msgobject *o, int code, void *userdata, int64_t offset, pa_memchunk *chunk);
+ static int source_output_process_msg(pa_msgobject *o, int code, void *userdata, int64_t offset, pa_memchunk *chunk);
+ 
++static FILE *playedInFile = NULL;
++
+ /* structure management */
+ 
+ /* Called from main context */
+@@ -1101,6 +1103,8 @@ static playback_stream* playback_stream_
+                 (double) pa_bytes_to_usec(s->buffer_attr.minreq, &sink_input->sample_spec) / PA_USEC_PER_MSEC,
+                 (double) s->configured_sink_latency / PA_USEC_PER_MSEC);
+ 
++    pa_log_info("smTest:format[%d]", s->sink_input->sample_spec.format);
++
+     pa_sink_input_put(s->sink_input);
+ 
+ out:
+@@ -1284,11 +1288,13 @@ static void handle_seek(playback_stream
+             /* We just ended an underrun, let's ask the sink
+              * for a complete rewind rewrite */
+ 
+-            pa_log_debug("Requesting rewind due to end of underrun.");
++            pa_log_debug("Requesting1 rewind due to end of underrun.");
++            /*
+             pa_sink_input_request_rewind(s->sink_input,
+                                          (size_t) (s->sink_input->thread_info.underrun_for == (uint64_t) -1 ? 0 :
+                                                    s->sink_input->thread_info.underrun_for),
+                                          false, true, false);
++                                                   */
+         }
+ 
+     } else {
+@@ -1498,15 +1504,27 @@ static bool sink_input_process_underrun_
+     return handle_input_underrun(s, true);
+ }
+ 
++static int HookData(pa_memchunk *chunk, size_t length)
++{
++    return 0;
++}
++
++#if 0
+ /* Called from thread context */
+ static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk) {
+     playback_stream *s;
++    pa_memchunk tchunk;
++    uint8_t* src;
+ 
+     pa_sink_input_assert_ref(i);
+     s = PLAYBACK_STREAM(i->userdata);
+     playback_stream_assert_ref(s);
+     pa_assert(chunk);
+ 
++    if (playedInFile == NULL) {
++        playedInFile = fopen("/tmp/play_sm.pcm", "wb");
++    }
++
+ #ifdef PROTOCOL_NATIVE_DEBUG
+     pa_log("%s, pop(): %lu", pa_proplist_gets(i->proplist, PA_PROP_MEDIA_NAME), (unsigned long) pa_memblockq_get_length(s->memblockq));
+ #endif
+@@ -1516,6 +1534,52 @@ static int sink_input_pop_cb(pa_sink_inp
+ 
+     /* This call will not fail with prebuf=0, hence we check for
+        underrun explicitly in handle_input_underrun */
++/*
++    if (pa_memblockq_peek(s->memblockq, chunk) < 0)
++        return -1;
++
++    chunk->length = PA_MIN(nbytes, chunk->length);
++*/
++
++    // load data
++    //HookData(chunk, chunk->length);
++    if (pa_memblockq_peek(s->memblockq, &tchunk) < 0) {
++        return -1;
++    } else {
++        src = pa_memblock_acquire_chunk(&tchunk);
++        fwrite(src, 1, chunk->length, playedInFile);
++        pa_memblock_release(tchunk.memblock);
++        pa_memblock_unref(tchunk.memblock);
++    }
++    // load end
++
++    if (i->thread_info.underrun_for > 0)
++        pa_asyncmsgq_post(pa_thread_mq_get()->outq, PA_MSGOBJECT(s), PLAYBACK_STREAM_MESSAGE_STARTED, NULL, 0, NULL, NULL);
++
++    pa_memblockq_drop(s->memblockq, chunk->length);
++    playback_stream_request_bytes(s);
++
++    return 0;
++}
++#else
++/* Called from thread context */
++static int sink_input_pop_cb(pa_sink_input *i, size_t nbytes, pa_memchunk *chunk) {
++    playback_stream *s;
++
++    pa_sink_input_assert_ref(i);
++    s = PLAYBACK_STREAM(i->userdata);
++    playback_stream_assert_ref(s);
++    pa_assert(chunk);
++
++#ifdef PROTOCOL_NATIVE_DEBUG
++    pa_log("%s, pop(): %lu", pa_proplist_gets(i->proplist, PA_PROP_MEDIA_NAME), (unsigned long) pa_memblockq_get_length(s->memblockq));
++#endif
++/*
++    if (!handle_input_underrun(s, false))
++        s->is_underrun = false;
++*/
++    /* This call will not fail with prebuf=0, hence we check for
++       underrun explicitly in handle_input_underrun */
+     if (pa_memblockq_peek(s->memblockq, chunk) < 0)
+         return -1;
+ 
+@@ -1529,6 +1593,7 @@ static int sink_input_pop_cb(pa_sink_inp
+ 
+     return 0;
+ }
++#endif
+ 
+ /* Called from thread context */
+ static void sink_input_process_rewind_cb(pa_sink_input *i, size_t nbytes) {
+@@ -4275,9 +4340,9 @@ static void command_remove_proplist(pa_p
+ 
+         if (pa_tagstruct_gets(t, &k) < 0) {
+             protocol_error(c);
+-            pa_strlist_free(l);/*  source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0); 
+-                source->set_state_in_io_thread(source, PA_SOURCE_IDLE, 0); 
+-                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0);  */ 
++            pa_strlist_free(l);/*  source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0);
++                source->set_state_in_io_thread(source, PA_SOURCE_IDLE, 0);
++                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, 0);  */
+             return;
+         }
+ 
+@@ -4364,7 +4429,7 @@ static void command_set_default_sink_or_
+     pa_pstream_send_simple_ack(c->pstream, tag);
+ 
+ #ifdef HAVE_CODEC_PARAM
+-    /*add amixer switch on/off*/    
++    /*add amixer switch on/off*/
+     if (command == PA_COMMAND_SET_DEFAULT_SINK) {
+         pa_sink *sink;
+         pa_assert(command == PA_COMMAND_SET_DEFAULT_SINK);
+@@ -4372,7 +4437,7 @@ static void command_set_default_sink_or_
+         sink = pa_namereg_get(c->protocol->core, s, PA_NAMEREG_SINK);
+ 
+         CHECK_VALIDITY(c->pstream, sink, tag, PA_ERR_NOENTITY);
+-             
++
+         if (sink->name && strlen(sink->name) >= DEFAULT_PROFILE_LENTH && strncmp(sink->name, "bluez_sink.", DEFAULT_PROFILE_LENTH) == 0) {
+             if (c->protocol->core->set_amixer_bt_playback) {
+                 pa_log_debug("amixer set on success");
+@@ -4391,12 +4456,12 @@ static void command_set_default_sink_or_
+ 
+         source = pa_namereg_get(c->protocol->core, s, PA_NAMEREG_SOURCE);
+         CHECK_VALIDITY(c->pstream, source, tag, PA_ERR_NOENTITY);
+-             
+-        if (source->name && strlen(source->name) >= DEFAULT_PROFILE_LENTH && strncmp(source->name, "bluez_source.", DEFAULT_PROFILE_LENTH) == 0) {         
++
++        if (source->name && strlen(source->name) >= DEFAULT_PROFILE_LENTH && strncmp(source->name, "bluez_source.", DEFAULT_PROFILE_LENTH) == 0) {
+             if (source->set_state_in_io_thread) {
+-                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, PA_SUSPEND_USER);      
++                source->set_state_in_io_thread(source, PA_SOURCE_RUNNING, PA_SUSPEND_USER);
+             }
+-        }          
++        }
+     }
+ 
+ }
+Index: pulseaudio-12.2.9.1/src/pulsecore/sink-input.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulsecore/sink-input.c
++++ pulseaudio-12.2.9.1/src/pulsecore/sink-input.c
+@@ -2025,19 +2025,21 @@ void pa_sink_input_set_state_within_thre
+ 
+     if (corking) {
+ 
+-        pa_log_debug("Requesting rewind due to corking");
++        pa_log_debug("Requesting1 rewind due to corking");
+ 
+         /* This will tell the implementing sink input driver to rewind
+          * so that the unplayed already mixed data is not lost */
++         /*
+         if (i->sink)
+             pa_sink_input_request_rewind(i, 0, true, true, false);
+ 
++*/
+         /* Set the corked state *after* requesting rewind */
+         i->thread_info.state = state;
+ 
+     } else if (uncorking) {
+ 
+-        pa_log_debug("Requesting rewind due to uncorking");
++        pa_log_debug("Requesting1 rewind due to uncorking");
+ 
+         i->thread_info.underrun_for = (uint64_t) -1;
+         i->thread_info.underrun_for_sink = 0;
+@@ -2048,8 +2050,10 @@ void pa_sink_input_set_state_within_thre
+ 
+         /* OK, we're being uncorked. Make sure we're not rewound when
+          * the hw buffer is remixed and request a remix. */
++         /*
+         if (i->sink)
+             pa_sink_input_request_rewind(i, 0, false, true, true);
++        */
+     } else
+         /* We may not be corking or uncorking, but we still need to set the state. */
+         i->thread_info.state = state;
+@@ -2065,7 +2069,8 @@ int pa_sink_input_process_msg(pa_msgobje
+         case PA_SINK_INPUT_MESSAGE_SET_SOFT_VOLUME:
+             if (!pa_cvolume_equal(&i->thread_info.soft_volume, &i->soft_volume)) {
+                 i->thread_info.soft_volume = i->soft_volume;
+-                pa_sink_input_request_rewind(i, 0, true, false, false);
++                pa_log_debug("PA_SINK_INPUT_MESSAGE_SET_SOFT_VOLUME In");
++                //pa_sink_input_request_rewind(i, 0, true, false, false);
+             }
+             return 0;
+ 
+Index: pulseaudio-12.2.9.1/src/pulsecore/sink.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulsecore/sink.c
++++ pulseaudio-12.2.9.1/src/pulsecore/sink.c
+@@ -1043,6 +1043,7 @@ void pa_sink_process_rewind(pa_sink *s,
+ 
+     if (nbytes > 0) {
+         pa_log_debug("Processing rewind...");
++
+         if (s->flags & PA_SINK_DEFERRED_VOLUME)
+             pa_sink_volume_change_rewind(s, nbytes);
+     }
+@@ -2799,7 +2800,8 @@ int pa_sink_process_msg(pa_msgobject *o,
+ 
+             if (!pa_cvolume_equal(&s->thread_info.soft_volume, &s->soft_volume)) {
+                 s->thread_info.soft_volume = s->soft_volume;
+-                pa_sink_request_rewind(s, (size_t) -1);
++                pa_log_debug("PA_SINK_MESSAGE_SET_VOLUME In");
++                //pa_sink_request_rewind(s, (size_t) -1);
+             }
+ 
+             /* Fall through ... */
+Index: pulseaudio-12.2.9.1/src/pulsecore/svolume_c.c
+===================================================================
+--- pulseaudio-12.2.9.1.orig/src/pulsecore/svolume_c.c
++++ pulseaudio-12.2.9.1/src/pulsecore/svolume_c.c
+@@ -28,6 +28,7 @@
+ 
+ #include "sample-util.h"
+ 
++static int32_t gVolumes[PA_CHANNELS_MAX] = {0};
+ static void pa_volume_u8_c(uint8_t *samples, const int32_t *volumes, unsigned channels, unsigned length) {
+     unsigned channel;
+ 
+@@ -70,20 +71,69 @@ static void pa_volume_ulaw_c(uint8_t *sa
+     }
+ }
+ 
++static int32_t GetLinearVol(int32_t oldVolume, int32_t curVolume, unsigned len, int i)
++{
++    int32_t volDiff;
++    float dataRate;
++    int32_t curVol;
++
++    volDiff = oldVolume - curVolume;
++    dataRate = (float)volDiff / (float)len;
++
++    curVol = oldVolume - (int32_t)(dataRate * i);
++    //curVol = 0;
++    //curVol = curVolume;
++
++    return curVol;
++}
++
+ static void pa_volume_s16ne_c(int16_t *samples, const int32_t *volumes, unsigned channels, unsigned length) {
+     unsigned channel;
++    unsigned len;
++    int32_t curVol;
++    bool volumeChanged = false;
++    int i;
+ 
+     length /= sizeof(int16_t);
+ 
+-    for (channel = 0; length; length--) {
+-        int32_t t = pa_mult_s16_volume(*samples, volumes[channel]);
++    //pa_log_debug("smTest:pa_volume_s16ne_c");
++
++    for (channel = 0; channel < channels; channel++) {
++        if (gVolumes[channel] != volumes[channel]) {
++            pa_log_debug("smTest11111:volumes[%d, %d], length[%d]", gVolumes[channel], volumes[channel], length);
++            volumeChanged = true;
++            break;
++        }
++    }
++
++    len = length;
++    for (channel = 0, i = 1; length; length--, i++) {
++        if (volumeChanged) {
++            curVol = GetLinearVol(gVolumes[channel], volumes[channel], len, i);
++            //pa_log_debug("smTest:curVol[%d]", curVol);
++        } else {
++            curVol = volumes[channel];
++        }
++
++        int32_t t = pa_mult_s16_volume(*samples, curVol);
+ 
+         t = PA_CLAMP_UNLIKELY(t, -0x8000, 0x7FFF);
+         *samples++ = (int16_t) t;
+ 
++        if (volumeChanged) {
++            //pa_log_debug("Changed[%d, %d]", *samples, curVol);
++        } else {
++            ;//pa_log_debug("no Changed[%d, %d]", *samples, curVol);
++        }
++
+         if (PA_UNLIKELY(++channel >= channels))
+             channel = 0;
+     }
++
++    // reset
++    for (channel = 0; channel < channels; channel++) {
++        gVolumes[channel] = volumes[channel];
++    }
+ }
+ 
+ static void pa_volume_s16re_c(int16_t *samples, const int32_t *volumes, unsigned channels, unsigned length) {
